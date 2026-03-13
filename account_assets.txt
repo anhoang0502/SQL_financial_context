@@ -1,0 +1,25 @@
+
+CREATE VIEW [dbo].[section_assets] as 
+WITH assets_union as (
+select *, 1 as order_process from account_cash
+UNION ALL
+select *, 2 as order_process from account_receivable
+UNION ALL
+select *, 3 as order_process from account_inventory
+UNION ALL 
+select *, 4 as order_process from account_property_equipment
+UNION ALL 
+select distinct YEAR(calendar_at) as period_year,
+'Assets' as account,
+0 as total_amount,
+999 as order_process
+from calendar )
+
+select period_year,
+account,
+'Assets' as section_bs,
+-- total_amount as original,
+-- SUM(total_amount) OVER (PARTITION BY period_year order by order_process) as new_total_amount,
+case when order_process = 999 then SUM(total_amount) OVER (PARTITION BY period_year order by order_process)
+else total_amount end as total_amount
+from assets_union

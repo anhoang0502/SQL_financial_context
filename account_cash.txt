@@ -1,0 +1,64 @@
+CREATE VIEW [dbo].[account_cash] as 
+WITH purchase_dates as ( -- as purchase is an outflow of money out of the cast account
+SELECT 
+CASE WHEN payment_method = 'cash' then payment_at
+ELSE DATEADD(MONTH, 1, payment_at) END AS actual_payment_at,
+- SUM(quantity * amount) as total_amount --**NOTE**
+FROM purchases
+GROUP BY CASE WHEN payment_method = 'cash' then payment_at
+ELSE DATEADD(MONTH, 1, payment_at) END )
+
+, purchase as (
+SELECT YEAR(actual_payment_at) AS period_year,
+SUM(total_amount) as total_amount
+FROM purchase_dates
+GROUP BY YEAR(actual_payment_at)
+)
+, revenue_dates as ( -- AS revenue is an inflow of money into the cash account
+SELECT 
+CASE WHEN payment_method = 'cash' then payment_at
+ELSE DATEADD(MONTH, 1, payment_at) END AS actual_payment_at,
+SUM(quantity * price) as total_amount --*NOTE*
+FROM sales
+GROUP BY CASE WHEN payment_method = 'cash' then payment_at
+ELSE DATEADD(MONTH, 1, payment_at) END )
+
+, revenue as (
+SELECT YEAR(actual_payment_at) AS period_year,
+SUM(total_amount) as total_amount
+FROM revenue_dates
+GROUP BY YEAR(actual_payment_at)
+)
+, loan_in as (
+SELECT YEAR(loan_at) as period_year,
+SUM(value) as total_amount --*NOTE: money in
+FROM loans
+GROUP BY YEAR(loan_at)
+)
+, expenses as (
+SELECT YEAR(payment_date) as period_year,
+- SUM(amount) as total_amount --**NOTE: money out
+FROM [payments]
+WHERE payment_type in ('equipment' , 'wage', 'rent', 'utility', 'tax', 'loan', 'interest')
+GROUP BY YEAR(payment_date)
+)
+
+, cash_union as (
+SELECT * FROM loan_in
+UNION ALL
+SELECT * FROM expenses
+UNION ALL 
+SELECT * FROM purchase
+UNION ALL
+SELECT * FROM revenue
+)
+, cash_amount as (
+SELECT period_year,
+SUM(total_amount) as total_amount
+FROM cash_union
+GROUP BY period_year
+)
+
+SELECT period_year, 'Cash' as account, 
+SUM(total_amount) OVER (ORDER BY period_year) as total_amount
+FROM cash_amount

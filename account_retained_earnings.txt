@@ -1,0 +1,109 @@
+-- account retain_earning
+-- CREATE VIEW account_retained_earnings_details as 
+CREATE VIEW [dbo].[account_retained_earnings_details] AS
+WITH revenue as (
+select YEAR(payment_at) as period_year,
+'Revenue' as transaction_type,
+1 as order_process,
+SUM(quantity * price) as total_amount
+from sales
+group by YEAR(payment_at) )
+
+, product_price as (
+select distinct product_name, amount
+from purchases )
+
+, cogs as ( --cost of goods sold -> giá vốn hàng bán
+select YEAR(payment_at) as period_year,
+'Cost of Goods Sold' as transaction_type,
+2 as order_process,
+- SUM (s.quantity * amount) as total_amount
+from sales s
+left join product_price p
+on s. product_name = p. product_name
+group by YEAR(payment_at) )
+
+, depreciation_dates as (
+select 
+id, payment_date, calendar_at, YEAR(calendar_at) as period_year,
+amount,
+amount / count(*) over (partition by id) as installments -- tính khấu hao trong suốt thời gian được quan sát
+from calendar
+cross join payments
+where calendar_at >= payment_date -- xét sau ngày thanh toán 
+and calendar_at <= DATEADD(YEAR, 10, payment_date) -- xét 10 năm sau ngày thanh toán
+and payment_type = 'equipment') -- mua equipment 
+
+, depreciation_sum as (
+select 
+*,
+SUM(installments) over (partition by id order by calendar_at) as depreciation_amount -- tính running total 1 id
+from depreciation_dates )
+
+, depreciation as (
+select period_year,
+'Depreciation' as transaction_type,
+3 as order_process,
+Sum(depreciation_amount) as total_amount
+from depreciation_sum
+group by period_year )
+
+, expenses as ( 
+select 
+YEAR(payment_date) as period_year,
+case when payment_type = 'tax' then 'Tax Expenses'
+when payment_type = 'interest' then 'Interest Expenses'
+when payment_type = 'wage' then 'Wage Expenses'
+when payment_type in ('rent', 'utility') then 'Operational Expenses'
+end as transaction_type,
+case when payment_type = 'tax' then 4
+when payment_type = 'interest' then 5
+when payment_type = 'wage' then 6
+when payment_type in ('rent', 'utility') then 7
+end as order_process,
+- SUM(amount) as total_amount -- money out for detailed expenses 
+from payments
+where payment_type IN ('wage', 'rent', 'utility', 'tax', 'interest')
+group by 
+YEAR(payment_date),
+case when payment_type = 'tax' then 'Tax Expenses'
+when payment_type = 'interest' then 'Interest Expenses'
+when payment_type = 'wage' then 'Wage Expenses'
+when payment_type in ('rent', 'utility') then 'Operational Expenses'
+end,
+case when payment_type = 'tax' then 4
+when payment_type = 'interest' then 5
+when payment_type = 'wage' then 6
+when payment_type in ('rent', 'utility') then 7
+end )
+
+, re_union as (
+select * 
+from revenue
+UNION ALL
+select * from cogs
+union all 
+select * from depreciation
+union all 
+select * from expenses
+UNION ALL
+select Distinct YEAR(calendar_at) as period_year,
+'Retained Earnings - Beginning Balance' as transaction_type,
+0 as order_process,
+0 as total_amount
+from calendar
+union all
+select Distinct YEAR(calendar_at) as period_year,
+'Retained Earnings' as transaction_type,
+999 as order_process,
+0 as total_amount
+from calendar
+)
+
+select period_year,
+transaction_type,
+--total_amount as original,
+--SUM(total_amount) OVER  (ORDER BY period_year, order_process) as new_total_amount,
+case when order_process IN (0,999) then SUM(total_amount) OVER (ORDER BY period_year, order_process)
+else total_amount end as TOTAL_AMOUNT
+from re_union

@@ -1,0 +1,47 @@
+CREATE VIEW [dbo].[account_inventory] as
+WITH purchase_dates as (
+select 
+case when payment_method = 'cash' then payment_at
+else dateadd(month, 1, payment_at) end as actual_payment_at,
+sum(quantity * amount) as total_amount
+from purchases
+group by case when payment_method = 'cash' then payment_at
+else DATEADD(MONTH, 1, payment_at) end )
+
+, purchase as (
+select YEAR (actual_payment_at) as period_year,
+SUM(total_amount) as total_amount
+from purchase_dates
+group by YEAR(actual_payment_at)
+)
+
+, product_price as (
+select DISTINCT product_name, amount
+from purchases )
+
+, sale as (
+select 
+YEAR(payment_at) as period_year,
+- SUM( quantity * amount) as total_amount -- vì đang đứng trên account inventory --
+from sales s
+left join product_price p
+on s.product_name = p.product_name --tránh join name, nên join id
+group by YEAR(payment_at)
+)
+
+, inventory_union as (
+select * from purchase
+UNION ALL
+select * from sale )
+
+, inventory_sum as (
+select period_year,
+sum (total_amount) as total_amount
+from inventory_union
+group by period_year
+) 
+
+select period_year,
+'Inventory' as account,
+SUM(total_amount) OVER (ORDER BY period_year) as total_amount
+from inventory_sum

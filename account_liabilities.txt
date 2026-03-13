@@ -1,0 +1,20 @@
+-- account liabities
+CREATE VIEW [dbo].[section_liabilities] as
+WITH liabilities_union as (
+select
+*, 1 as order_process
+from account_loan
+UNION ALL
+select YEAR(calendar_at) as period_year,
+'Liabities' as account,
+0 as total_amount,
+999 as order_process
+from calendar
+group by YEAR(calendar_at) ) --- tránh dòng trùng, thay vì select distinct
+
+select period_year,
+'Liabities' as section_bs,
+account,
+case when order_process = 999 then SUM(total_amount) OVER (PARTITION BY period_year ORDER BY order_process)
+else total_amount end as total_amount
+from liabilities_union

@@ -1,0 +1,31 @@
+CREATE VIEW [dbo].[account_loan] as 
+WITH loan_in as (
+select YEAR(loan_at) as period_year,
+SUM(value) as total_amount -- money in
+from loans
+group by YEAR(loan_at) )
+
+, loan_payment as (
+select 
+YEAR (payment_date) as period_year,
+- SUM (amount) as total_amount -- money out
+from payments
+where payment_type = 'loan'
+group by YEAR (payment_date) )
+
+, loan_union as (
+select * from loan_in
+UNION ALL
+select * from loan_payment)
+
+, loan_amount as (
+select period_year,
+SUM (total_amount) as total_amount
+from loan_union
+group by period_year )
+
+
+select period_year,
+'Loan' as account,
+SUM (total_amount) over (order by period_year) as total_amount
+from loan_amount

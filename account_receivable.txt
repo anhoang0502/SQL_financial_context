@@ -1,0 +1,9 @@
+CREATE VIEW [dbo].[account_receivable] as 
+select 
+YEAR (payment_at) as period_year,
+'Account Receivable' as account,
+SUM (quantity * price) as total_amount
+from sales
+WHERE payment_method <> 'Cash'
+AND MONTH(payment_at ) = 12 -- Nếu credit card rơi vào tháng 12 năm trước thì khoản tiền thực tế nhận được là T1 năm tiếp theo
+GROUP BY YEAR(payment_at)

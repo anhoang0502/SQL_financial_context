@@ -1,0 +1,56 @@
+-- DEPRECIATION: khấu hao
+CREATE VIEW [dbo].[account_property_equipment] as
+WITH depreciation_dates as (
+select 
+id,
+payment_date,
+calendar_at,
+YEAR(calendar_at) as period_year,
+CASE WHEN
+YEAR(calendar_at) = YEAR(DATEADD(YEAR, 10, payment_date)) -- Xét đủ 10 năm khấu hao
+AND MONTH(calendar_at) = MONTH(payment_date) THEN 1 -- Khi tròn đủ 12 tháng thì mới được
+WHEN MONTH(calendar_at) = 12 THEN 1
+ELSE 0 END AS flag_1_year,
+amount,
+count(*) over (partition by id) as terms, -- số kỳ trong 10 năm
+amount/ count(*) over (partition by id) as installments -- mỗi kỳ khấu hao bao nhiêu
+from calendar
+cross join payments
+where calendar_at >= payment_date -- xét sau ngày thanh toán
+and calendar_at <= DATEADD(YEAR, 10, payment_date) -- xét khoản thời gian 10 năm từ sau khi thanh toán
+and payment_type = 'equipment' )
+
+, depreciation_sum  as (
+select *,
+SUM(installments) OVER (PARTITION BY id ORDER BY calendar_at) as depreciation_amount -- cùng id mới gom lại với nhau (cộng dồn với nhau): (PARTITION BY: GOM CÙNG ID)
+from depreciation_dates )
+
+
+, depreciation as (
+select period_year,
+SUM(depreciation_amount) as total_amount
+from depreciation_sum
+group by period_year )
+
+, ple_purchase as (
+select YEAR(payment_date) as period_year,
+SUM (amount) as total_amount
+from payments
+where payment_type = 'equipment'
+group by YEAR(payment_date) )
+
+, ple_union as (
+select *, 'depreciation' as mark FROM depreciation
+UNION ALL
+select *, 'purchase' as mark from ple_purchase)
+
+, ple_sum as (
+select period_year,
+SUM(total_amount) as total_amount
+from ple_union
+group by period_year )
+
+select period_year,
+'property land & equipment' as account, 
+sum(total_amount) OVER (ORDER BY period_year) as total_amount
+from ple_sum
